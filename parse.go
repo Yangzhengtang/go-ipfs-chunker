@@ -15,7 +15,7 @@ const (
 	// No leaf block should contain more than 1MiB of payload data ( wrapping overhead aside )
 	// This effectively mandates the maximum chunk size
 	// See discussion at https://github.com/ipfs/go-ipfs-chunker/pull/21#discussion_r369124879 for background
-	ChunkSizeLimit int = 1048576
+	ChunkSizeLimit int = 1048576 * 1024
 )
 
 var (
@@ -46,6 +46,9 @@ func FromString(r io.Reader, chunker string) (Splitter, error) {
 
 	case strings.HasPrefix(chunker, "rabin"):
 		return parseRabinString(r, chunker)
+
+	case strings.HasPrefix(chunker, "fec"):
+		return parseECString(r, chunker)
 
 	case chunker == "buzhash":
 		return NewBuzhash(r), nil
@@ -108,6 +111,40 @@ func parseRabinString(r io.Reader, chunker string) (Splitter, error) {
 		}
 
 		return NewRabinMinMax(r, uint64(min), uint64(avg), uint64(max)), nil
+	default:
+		return nil, errors.New("incorrect format (expected 'rabin' 'rabin-[avg]' or 'rabin-[min]-[avg]-[max]'")
+	}
+}
+
+/*
+	var dataShards = flag.Int("data", 4, "Number of shards to split the data into, must be below 257.")
+	var parShards = flag.Int("par", 2, "Number of parity shards")
+*/
+func parseECString(r io.Reader, chunker string) (Splitter, error) {
+	parts := strings.Split(chunker, "-")
+	switch len(parts) {
+	case 1:
+		return NewFec(r, 4, 2), nil
+	case 2:
+		dataShards, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return nil, err
+		} else if dataShards >= 257 {
+			return nil, errors.New("umber of shards to split the data into, must be below 257.")
+		}
+		return NewFec(r, dataShards, 2), nil
+	case 3:
+		dataShards, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return nil, err
+		}
+		parShards, err := strconv.Atoi(parts[2])
+		if err != nil {
+			return nil, err
+		} else if dataShards >= 257 {
+			return nil, errors.New("umber of shards to split the data into, must be below 257.")
+		}
+		return NewFec(r, dataShards, parShards), nil
 	default:
 		return nil, errors.New("incorrect format (expected 'rabin' 'rabin-[avg]' or 'rabin-[min]-[avg]-[max]'")
 	}
